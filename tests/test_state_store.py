@@ -1,9 +1,10 @@
 import json
+from unittest.mock import patch
 
 from polywave.config import Config
 from polywave.gamma_client import Market
 from polywave.risk import Position, RiskManager
-from polywave.state_store import StateStore
+from polywave.state_store import KV_STATE_KEY, StateStore
 from polywave.strategy import Signal
 
 
@@ -81,3 +82,58 @@ def test_write_includes_open_positions_and_recent_trades(tmp_path):
     assert data["open_positions"] == []
     assert len(data["recent_trades"]) == 1
     assert data["recent_trades"][0]["won"] is True
+
+
+def test_write_skips_kv_push_when_not_configured(tmp_path):
+    config = Config(dry_run=True, state_file_path=str(tmp_path / "state.json"))
+    risk = RiskManager(config=config)
+    store = StateStore(config)
+
+    with patch("polywave.state_store.requests.post") as mock_post:
+        store.write(config, risk)
+
+    mock_post.assert_not_called()
+
+
+def test_write_pushes_to_kv_when_configured(tmp_path):
+    config = Config(
+        dry_run=True,
+        state_file_path=str(tmp_path / "state.json"),
+        kv_rest_api_url="https://example-kv.upstash.io",
+        kv_rest_api_token="secret-token",
+        state_ttl_seconds=60,
+    )
+    risk = RiskManager(config=config)
+    store = StateStore(config)
+
+    with patch("polywave.state_store.requests.post") as mock_post:
+        mock_post.return_value.raise_for_status.return_value = None
+        store.write(config, risk, signal=Signal.DOWN, momentum_bps=-20.0)
+
+    mock_post.assert_called_once()
+    args, kwargs = mock_post.call_args
+    assert args[0] == f"https://example-kv.upstash.io/set/{KV_STATE_KEY}"
+    assert kwargs["params"] == {"EX": 60}
+    assert kwargs["headers"]["Authorization"] == "Bearer secret-token"
+    body = json.loads(kwargs["data"])
+    assert body["signal"] == "Down"
+    assert body["momentum_bps"] == -20.0
+
+
+def test_write_swallows_kv_push_errors(tmp_path):
+    import requests
+
+    state_path = tmp_path / "state.json"
+    config = Config(
+        dry_run=True,
+        state_file_path=str(state_path),
+        kv_rest_api_url="https://example-kv.upstash.io",
+        kv_rest_api_token="secret-token",
+    )
+    risk = RiskManager(config=config)
+    store = StateStore(config)
+
+    with patch("polywave.state_store.requests.post", side_effect=requests.ConnectionError("boom")):
+        store.write(config, risk)  # must not raise
+
+    assert state_path.exists()  # local file write still happened
