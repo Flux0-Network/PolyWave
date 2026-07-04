@@ -6,6 +6,7 @@ def make_position(condition_id="c1", window_start=0, outcome="Up", size_usdc=5, 
     return Position(
         condition_id=condition_id,
         window_start=window_start,
+        market_slug=f"btc-updown-5m-{window_start}",
         token_id="token",
         outcome=outcome,
         size_usdc=size_usdc,
@@ -114,3 +115,23 @@ def test_roll_day_if_needed_is_a_noop_same_day():
     risk.record_open(make_position(condition_id="c1"))
     risk.roll_day_if_needed()
     assert risk.trades_opened == 1
+
+
+def test_settle_appends_to_history():
+    risk = RiskManager(config=Config(dry_run=True))
+    risk.record_open(make_position(condition_id="c1", size_usdc=5, entry_price=0.5))
+    risk.settle("c1", won=True)
+
+    assert len(risk.history) == 1
+    entry = risk.history[0]
+    assert entry["condition_id"] == "c1"
+    assert entry["won"] is True
+    assert entry["pnl_usdc"] == 5.0
+
+
+def test_history_survives_daily_reset():
+    risk = RiskManager(config=Config(dry_run=True))
+    risk.record_open(make_position(condition_id="c1"))
+    risk.settle("c1", won=True)
+    risk.reset_daily()
+    assert len(risk.history) == 1

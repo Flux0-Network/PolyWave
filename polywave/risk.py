@@ -19,15 +19,20 @@ def _today() -> str:
     return datetime.now(timezone.utc).date().isoformat()
 
 
+HISTORY_LIMIT = 200
+
+
 @dataclass
 class Position:
     condition_id: str
     window_start: int
+    market_slug: str
     token_id: str
     outcome: str
     size_usdc: float
     entry_price: float
     order_id: str
+    opened_at: str = field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     settled: bool = False
 
 
@@ -40,6 +45,7 @@ class RiskManager:
     trades_won: int = 0
     trades_lost: int = 0
     stats_date: str = field(default_factory=_today)
+    history: list[dict] = field(default_factory=list)
 
     def can_open_new_trade(self, condition_id: str) -> bool:
         self.roll_day_if_needed()
@@ -71,6 +77,20 @@ class RiskManager:
             self.trades_won += 1
         else:
             self.trades_lost += 1
+        self.history.append(
+            {
+                "condition_id": position.condition_id,
+                "market_slug": position.market_slug,
+                "outcome": position.outcome,
+                "size_usdc": position.size_usdc,
+                "entry_price": position.entry_price,
+                "won": won,
+                "pnl_usdc": pnl,
+                "opened_at": position.opened_at,
+                "settled_at": datetime.now(timezone.utc).isoformat(),
+            }
+        )
+        del self.history[:-HISTORY_LIMIT]
         logger.info(
             "Settled %s (%s): %s, pnl=%.4f USDC, running total=%.4f USDC",
             condition_id,
