@@ -59,6 +59,13 @@ class Config:
     stats_log_interval_seconds: int = field(default_factory=lambda: _int("STATS_LOG_INTERVAL_SECONDS", 900))
 
     state_file_path: str = field(default_factory=lambda: os.getenv("STATE_FILE_PATH", "data/state.json"))
+    # Optional: push the same state snapshot to an Upstash/Vercel KV REST
+    # endpoint so a dashboard deployed on Vercel (which can't read this
+    # machine's filesystem) can read it too. Both env var names are the ones
+    # Vercel's Upstash-backed KV integration injects automatically.
+    kv_rest_api_url: str | None = field(default_factory=lambda: os.getenv("KV_REST_API_URL") or None)
+    kv_rest_api_token: str | None = field(default_factory=lambda: os.getenv("KV_REST_API_TOKEN") or None)
+    state_ttl_seconds: int = field(default_factory=lambda: _int("STATE_TTL_SECONDS", 120))
 
     trade_size_usdc: float = field(default_factory=lambda: _float("TRADE_SIZE_USDC", 5))
     max_daily_loss_usdc: float = field(default_factory=lambda: _float("MAX_DAILY_LOSS_USDC", 50))

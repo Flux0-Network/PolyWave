@@ -116,6 +116,35 @@ The dashboard only reads the state file — it never talks to Polymarket,
 Binance, or your wallet directly, so it's safe to leave open even in live
 mode.
 
+### Deploying the dashboard to Vercel
+
+The bot has to keep running somewhere with a persistent process (a VPS, your
+own machine, etc.) — Vercel only runs the *dashboard*. Since Vercel functions
+can't read that machine's local `data/state.json`, the bot instead pushes the
+same snapshot to a small REST-based key/value store that both sides can
+reach over HTTPS:
+
+1. **Create a KV store.** Easiest: in the Vercel dashboard, add the
+   "Upstash for Redis" integration (Storage tab) to your project — it
+   provisions a free Redis DB and gives you a REST URL + token. (A standalone
+   [Upstash](https://upstash.com) account works identically.)
+2. **Configure the bot.** In the bot's `.env`, set `KV_REST_API_URL` and
+   `KV_REST_API_TOKEN` to those values. The bot now pushes its state
+   snapshot there on every tick, in addition to the local file.
+3. **Import the repo into Vercel.** New Project → this repo → set
+   **Root Directory** to `dashboard` (it's a subfolder, not the repo root).
+4. **Add the same two env vars** (`KV_REST_API_URL`, `KV_REST_API_TOKEN`) to
+   the Vercel project's Environment Variables — if you used the Upstash
+   integration in step 1, Vercel already injected them for you.
+5. **Deploy.** As long as the bot is running somewhere and pushing, the
+   deployed dashboard shows live state. If the bot stops for more than
+   `STATE_TTL_SECONDS` (default 120s), the snapshot expires and the
+   dashboard falls back to its empty state rather than showing stale data.
+
+Local development is unaffected — without those two env vars set, both the
+bot and the dashboard fall back to the local `data/state.json` file, no KV
+store needed.
+
 ## Tests
 
 ```bash
