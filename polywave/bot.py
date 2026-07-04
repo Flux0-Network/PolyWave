@@ -10,6 +10,7 @@ from polywave.binance_feed import BinancePriceFeed
 from polywave.config import Config
 from polywave.gamma_client import GammaClient, Market
 from polywave.risk import Position, RiskManager
+from polywave.state_store import StateStore
 from polywave.strategy import MomentumStrategy, Signal
 from polywave.trading_client import TradingClient
 
@@ -24,6 +25,8 @@ class Bot:
         self.trading = TradingClient(config)
         self.strategy = MomentumStrategy(threshold_bps=config.momentum_threshold_bps)
         self.risk = RiskManager(config=config)
+        self.state_store = StateStore(config)
+        self._last_stats_log = 0.0
 
     def run_forever(self) -> None:
         logger.info("Starting PolyWave (dry_run=%s)", self.config.dry_run)
@@ -35,31 +38,38 @@ class Bot:
             time.sleep(self.config.poll_interval_seconds)
 
     def tick(self) -> None:
+        self.risk.roll_day_if_needed()
         self._settle_pending_positions()
+        self._log_stats_periodically()
 
         market = self.gamma.get_current_market()
         if market is None:
             logger.warning("No active BTC 5-minute market found; will retry.")
+            self.state_store.write(self.config, self.risk)
             return
 
-        if not self._within_entry_window(market):
+        signal: Signal | None = None
+        momentum_bps: float | None = None
+        try:
+            if (
+                self._within_entry_window(market)
+                and market.accepting_orders
+                and self.risk.can_open_new_trade(market.condition_id)
+            ):
+                momentum_bps = self.price_feed.get_momentum_bps(self.config.momentum_lookback_seconds)
+                signal = self.strategy.decide(momentum_bps)
+                logger.info("%s momentum=%.2fbps -> signal=%s", market.slug, momentum_bps, signal.value)
+                if signal is not Signal.SKIP:
+                    self._open_position(market, signal)
+        finally:
+            self.state_store.write(self.config, self.risk, market=market, signal=signal, momentum_bps=momentum_bps)
+
+    def _log_stats_periodically(self) -> None:
+        now = time.time()
+        if now - self._last_stats_log < self.config.stats_log_interval_seconds:
             return
-
-        if not self.risk.can_open_new_trade(market.condition_id):
-            return
-
-        if not market.accepting_orders:
-            logger.debug("Market %s not accepting orders yet.", market.slug)
-            return
-
-        momentum_bps = self.price_feed.get_momentum_bps(self.config.momentum_lookback_seconds)
-        signal = self.strategy.decide(momentum_bps)
-        logger.info("%s momentum=%.2fbps -> signal=%s", market.slug, momentum_bps, signal.value)
-
-        if signal is Signal.SKIP:
-            return
-
-        self._open_position(market, signal)
+        self._last_stats_log = now
+        self.risk.log_summary()
 
     def _within_entry_window(self, market: Market) -> bool:
         if market.seconds_since_start < self.config.entry_buffer_seconds:
@@ -75,6 +85,7 @@ class Bot:
             Position(
                 condition_id=market.condition_id,
                 window_start=market.window_start,
+                market_slug=market.slug,
                 token_id=token_id,
                 outcome=signal.value,
                 size_usdc=result.size_usdc,
@@ -103,3 +114,4 @@ class Bot:
             if winner is None:
                 continue
             self.risk.settle(position.condition_id, won=winner.lower() == position.outcome.lower())
+            self.risk.log_summary()

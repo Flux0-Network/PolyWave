@@ -41,6 +41,14 @@ real funds.
    (`ENTRY_BUFFER_SECONDS`/`EXIT_BUFFER_SECONDS`), and settles past
    positions once Polymarket resolves them.
 
+## Trade stats
+
+The bot logs a summary line (`Stats <date>: opened=... settled=... won=...
+lost=... win_rate=... open=... pnl=...`) after every settled trade and every
+`STATS_LOG_INTERVAL_SECONDS` (default 15 min), so you can see trade
+frequency, win rate, and simulated/real PnL without digging through every
+line. Stats (and the daily loss limit) automatically reset at UTC midnight.
+
 ## Setup
 
 ```bash
@@ -81,6 +89,32 @@ risk.**
 
 See `.env.example` for the full list of environment variables (strategy
 thresholds, timing buffers, trade size, daily loss limit, API endpoints).
+
+## Dashboard
+
+`dashboard/` is a Next.js app that shows the bot's live state: the current
+market and countdown, today's stats (PnL, win rate, trades, open positions),
+a cumulative PnL chart, and a recent-trades table. It polls a JSON snapshot
+the bot writes to `data/state.json` (`STATE_FILE_PATH`) on every tick — no
+database, no extra process to run on the Python side.
+
+```bash
+# terminal 1: the bot (writes data/state.json as it runs)
+python main.py
+
+# terminal 2: the dashboard
+cd dashboard
+npm install
+npm run dev
+```
+
+Open http://localhost:3000. If no state file exists yet (bot not started,
+or a different `STATE_FILE_PATH`), the dashboard shows an empty state and
+starts polling automatically once one appears.
+
+The dashboard only reads the state file — it never talks to Polymarket,
+Binance, or your wallet directly, so it's safe to leave open even in live
+mode.
 
 ## Tests
 

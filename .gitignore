@@ -3,3 +3,10 @@ __pycache__/
 *.pyc
 .venv/
 .pytest_cache/
+data/
+.env.local
+
+# Next.js dashboard
+dashboard/node_modules/
+dashboard/.next/
+dashboard/out/

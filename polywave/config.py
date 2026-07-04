@@ -56,6 +56,9 @@ class Config:
     entry_buffer_seconds: int = field(default_factory=lambda: _int("ENTRY_BUFFER_SECONDS", 30))
     exit_buffer_seconds: int = field(default_factory=lambda: _int("EXIT_BUFFER_SECONDS", 20))
     poll_interval_seconds: int = field(default_factory=lambda: _int("POLL_INTERVAL_SECONDS", 5))
+    stats_log_interval_seconds: int = field(default_factory=lambda: _int("STATS_LOG_INTERVAL_SECONDS", 900))
+
+    state_file_path: str = field(default_factory=lambda: os.getenv("STATE_FILE_PATH", "data/state.json"))
 
     trade_size_usdc: float = field(default_factory=lambda: _float("TRADE_SIZE_USDC", 5))
     max_daily_loss_usdc: float = field(default_factory=lambda: _float("MAX_DAILY_LOSS_USDC", 50))
