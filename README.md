@@ -1,2 +1,103 @@
 # PolyWave
-Public Polymarket Bot 
+
+A bot that trades Polymarket's **"Bitcoin Up or Down"** 5-minute markets.
+
+Every 5 minutes Polymarket opens a new market asking whether BTC/USD will be
+higher or lower at the end of the window than at the start (resolved via
+Chainlink's BTC/USD stream). This bot watches short-term BTC momentum on
+Binance as a proxy signal and, if the move is large enough, buys the
+corresponding "Up" or "Down" outcome share.
+
+**This is a real-money trading bot for a fast-moving prediction market. Use
+at your own risk.** The default momentum strategy is a simple, unproven
+example — read it, understand it, and back-test/paper-trade before risking
+real funds.
+
+## How it works
+
+1. **Market discovery** (`polywave/gamma_client.py`) — Polymarket publishes
+   these markets with deterministic slugs (`btc-updown-5m-<window_start>`),
+   so the bot computes the slug for the current 5-minute window directly via
+   the public Gamma API instead of scanning all markets.
+2. **Price feed** (`polywave/binance_feed.py`) — pulls BTC/USDT 1-second
+   klines from Binance's public REST API to measure momentum over a
+   configurable lookback window. This is an approximation of the Chainlink
+   feed Polymarket actually settles against, not the settlement source
+   itself.
+3. **Strategy** (`polywave/strategy.py`) — `MomentumStrategy` bets **Up** if
+   price rose at least `MOMENTUM_THRESHOLD_BPS` over the lookback window,
+   **Down** if it fell that much, otherwise skips the market as noise.
+4. **Trading** (`polywave/trading_client.py`) — wraps
+   [`py-clob-client`](https://github.com/Polymarket/py-clob-client) to read
+   the order book and place a market (FOK) order for the chosen outcome. In
+   dry-run mode no py-clob-client instance or wallet is needed at all; best
+   bid/ask is read straight from the public CLOB REST API and orders are
+   only logged.
+5. **Risk management** (`polywave/risk.py`) — one position per market
+   window, and a daily stop-loss (`MAX_DAILY_LOSS_USDC`) that halts new
+   trades once hit.
+6. **Loop** (`polywave/bot.py`) — polls on `POLL_INTERVAL_SECONDS`, avoids
+   entering right after a window opens or right before it closes
+   (`ENTRY_BUFFER_SECONDS`/`EXIT_BUFFER_SECONDS`), and settles past
+   positions once Polymarket resolves them.
+
+## Setup
+
+```bash
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env
+```
+
+By default `DRY_RUN=true` — the bot logs what it *would* do (market picked,
+signal, order, simulated PnL) without ever placing a real order or needing a
+wallet. Run it and watch the logs before doing anything else:
+
+```bash
+python main.py
+```
+
+## Going live
+
+**Only after you've reviewed the strategy and are comfortable with the
+risk.**
+
+1. Get a Polygon wallet funded with USDC and (a small amount of) MATIC/POL
+   for gas, and note its private key.
+2. In `.env`, set:
+   ```
+   DRY_RUN=false
+   POLYMARKET_PRIVATE_KEY=0x...
+   ```
+   API credentials (`POLYMARKET_API_KEY`/`_SECRET`/`_PASSPHRASE`) are
+   optional — if omitted, the bot derives them from your private key on
+   startup via `create_or_derive_api_creds`.
+3. Start with a small `TRADE_SIZE_USDC` and a conservative
+   `MAX_DAILY_LOSS_USDC`.
+4. Never commit your `.env` file or private key.
+
+## Configuration
+
+See `.env.example` for the full list of environment variables (strategy
+thresholds, timing buffers, trade size, daily loss limit, API endpoints).
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
+
+Tests cover the strategy, risk/PnL, market-slug parsing, and momentum
+calculation using mocked HTTP responses — no network access or live
+credentials required.
+
+## Known limitations
+
+- Binance's public API is geo-restricted in some jurisdictions; if
+  `BinancePriceFeed` requests fail there, swap in another BTC/USDT spot feed.
+- The momentum strategy is intentionally simple and included as a working
+  example/baseline, not a proven edge.
+- The bot holds one open position per market window; it does not hedge,
+  average down, or trade multiple markets concurrently.
