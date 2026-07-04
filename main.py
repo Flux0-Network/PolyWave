@@ -34,6 +34,7 @@ def main() -> int:
         bot.run_forever()
     except KeyboardInterrupt:
         logging.getLogger(__name__).info("Shutting down.")
+        bot.risk.log_summary()
     return 0
 
 
