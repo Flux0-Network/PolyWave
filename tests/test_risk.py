@@ -60,3 +60,57 @@ def test_reset_daily_clears_pnl_and_settled_positions():
     risk.reset_daily()
     assert risk.realized_pnl_usdc == 0.0
     assert "c1" not in risk.positions
+
+
+def test_reset_daily_clears_trade_counters():
+    risk = RiskManager(config=Config(dry_run=True))
+    risk.record_open(make_position(condition_id="c1"))
+    risk.settle("c1", won=True)
+    risk.reset_daily()
+    assert risk.trades_opened == 0
+    assert risk.trades_won == 0
+    assert risk.trades_lost == 0
+
+
+def test_summary_tracks_counts_and_win_rate():
+    risk = RiskManager(config=Config(dry_run=True))
+    risk.record_open(make_position(condition_id="c1"))
+    risk.record_open(make_position(condition_id="c2"))
+    risk.settle("c1", won=True)
+    risk.settle("c2", won=False)
+
+    stats = risk.summary()
+
+    assert stats["trades_opened"] == 2
+    assert stats["trades_settled"] == 2
+    assert stats["trades_won"] == 1
+    assert stats["trades_lost"] == 1
+    assert stats["win_rate"] == 0.5
+    assert stats["open_positions"] == 0
+
+
+def test_summary_win_rate_is_none_before_any_settlement():
+    risk = RiskManager(config=Config(dry_run=True))
+    risk.record_open(make_position(condition_id="c1"))
+    assert risk.summary()["win_rate"] is None
+    assert risk.summary()["open_positions"] == 1
+
+
+def test_roll_day_if_needed_resets_stats_on_date_change():
+    risk = RiskManager(config=Config(dry_run=True))
+    risk.record_open(make_position(condition_id="c1"))
+    risk.settle("c1", won=True)
+
+    risk.stats_date = "2000-01-01"  # force a "yesterday"
+    risk.roll_day_if_needed()
+
+    assert risk.trades_opened == 0
+    assert risk.realized_pnl_usdc == 0.0
+    assert risk.stats_date != "2000-01-01"
+
+
+def test_roll_day_if_needed_is_a_noop_same_day():
+    risk = RiskManager(config=Config(dry_run=True))
+    risk.record_open(make_position(condition_id="c1"))
+    risk.roll_day_if_needed()
+    assert risk.trades_opened == 1

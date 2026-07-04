@@ -24,6 +24,7 @@ class Bot:
         self.trading = TradingClient(config)
         self.strategy = MomentumStrategy(threshold_bps=config.momentum_threshold_bps)
         self.risk = RiskManager(config=config)
+        self._last_stats_log = 0.0
 
     def run_forever(self) -> None:
         logger.info("Starting PolyWave (dry_run=%s)", self.config.dry_run)
@@ -35,7 +36,9 @@ class Bot:
             time.sleep(self.config.poll_interval_seconds)
 
     def tick(self) -> None:
+        self.risk.roll_day_if_needed()
         self._settle_pending_positions()
+        self._log_stats_periodically()
 
         market = self.gamma.get_current_market()
         if market is None:
@@ -60,6 +63,13 @@ class Bot:
             return
 
         self._open_position(market, signal)
+
+    def _log_stats_periodically(self) -> None:
+        now = time.time()
+        if now - self._last_stats_log < self.config.stats_log_interval_seconds:
+            return
+        self._last_stats_log = now
+        self.risk.log_summary()
 
     def _within_entry_window(self, market: Market) -> bool:
         if market.seconds_since_start < self.config.entry_buffer_seconds:
@@ -103,3 +113,4 @@ class Bot:
             if winner is None:
                 continue
             self.risk.settle(position.condition_id, won=winner.lower() == position.outcome.lower())
+            self.risk.log_summary()

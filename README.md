@@ -41,6 +41,14 @@ real funds.
    (`ENTRY_BUFFER_SECONDS`/`EXIT_BUFFER_SECONDS`), and settles past
    positions once Polymarket resolves them.
 
+## Trade stats
+
+The bot logs a summary line (`Stats <date>: opened=... settled=... won=...
+lost=... win_rate=... open=... pnl=...`) after every settled trade and every
+`STATS_LOG_INTERVAL_SECONDS` (default 15 min), so you can see trade
+frequency, win rate, and simulated/real PnL without digging through every
+line. Stats (and the daily loss limit) automatically reset at UTC midnight.
+
 ## Setup
 
 ```bash
