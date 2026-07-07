@@ -4,7 +4,7 @@ from unittest.mock import patch
 from polywave.config import Config
 from polywave.gamma_client import Market
 from polywave.risk import Position, RiskManager
-from polywave.state_store import KV_STATE_KEY, StateStore
+from polywave.state_store import SUPABASE_STATE_ROW_ID, SUPABASE_TABLE, StateStore
 from polywave.strategy import Signal
 
 
@@ -84,7 +84,7 @@ def test_write_includes_open_positions_and_recent_trades(tmp_path):
     assert data["recent_trades"][0]["won"] is True
 
 
-def test_write_skips_kv_push_when_not_configured(tmp_path):
+def test_write_skips_supabase_push_when_not_configured(tmp_path):
     config = Config(dry_run=True, state_file_path=str(tmp_path / "state.json"))
     risk = RiskManager(config=config)
     store = StateStore(config)
@@ -95,13 +95,12 @@ def test_write_skips_kv_push_when_not_configured(tmp_path):
     mock_post.assert_not_called()
 
 
-def test_write_pushes_to_kv_when_configured(tmp_path):
+def test_write_pushes_to_supabase_when_configured(tmp_path):
     config = Config(
         dry_run=True,
         state_file_path=str(tmp_path / "state.json"),
-        kv_rest_api_url="https://example-kv.upstash.io",
-        kv_rest_api_token="secret-token",
-        state_ttl_seconds=60,
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="secret-key",
     )
     risk = RiskManager(config=config)
     store = StateStore(config)
@@ -112,23 +111,26 @@ def test_write_pushes_to_kv_when_configured(tmp_path):
 
     mock_post.assert_called_once()
     args, kwargs = mock_post.call_args
-    assert args[0] == f"https://example-kv.upstash.io/set/{KV_STATE_KEY}"
-    assert kwargs["params"] == {"EX": 60}
-    assert kwargs["headers"]["Authorization"] == "Bearer secret-token"
-    body = json.loads(kwargs["data"])
-    assert body["signal"] == "Down"
-    assert body["momentum_bps"] == -20.0
+    assert args[0] == f"https://example.supabase.co/rest/v1/{SUPABASE_TABLE}"
+    assert kwargs["params"] == {"on_conflict": "id"}
+    assert kwargs["headers"]["apikey"] == "secret-key"
+    assert kwargs["headers"]["Authorization"] == "Bearer secret-key"
+    assert kwargs["headers"]["Prefer"] == "resolution=merge-duplicates,return=minimal"
+    row = kwargs["json"][0]
+    assert row["id"] == SUPABASE_STATE_ROW_ID
+    assert row["data"]["signal"] == "Down"
+    assert row["data"]["momentum_bps"] == -20.0
 
 
-def test_write_swallows_kv_push_errors(tmp_path):
+def test_write_swallows_supabase_push_errors(tmp_path):
     import requests
 
     state_path = tmp_path / "state.json"
     config = Config(
         dry_run=True,
         state_file_path=str(state_path),
-        kv_rest_api_url="https://example-kv.upstash.io",
-        kv_rest_api_token="secret-token",
+        supabase_url="https://example.supabase.co",
+        supabase_service_role_key="secret-key",
     )
     risk = RiskManager(config=config)
     store = StateStore(config)

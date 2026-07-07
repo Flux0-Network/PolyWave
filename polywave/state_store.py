@@ -1,11 +1,11 @@
 """Writes a JSON snapshot of the bot's state for the dashboard to read.
 
 The local file write is atomic (write to a temp file, then rename) so the
-dashboard never reads a half-written file. If KV_REST_API_URL/TOKEN are set,
-the same snapshot is also pushed to an Upstash-compatible REST KV store --
-this is what lets a dashboard deployed on Vercel (which cannot read this
-machine's filesystem) see live state. Both are independent; the local file
-write always happens, the KV push is best-effort and never raises.
+dashboard never reads a half-written file. If SUPABASE_URL/SERVICE_ROLE_KEY
+are set, the same snapshot is also upserted into a Supabase table -- this is
+what lets a dashboard deployed on Vercel (which cannot read this machine's
+filesystem) see live state. Both are independent; the local file write
+always happens, the Supabase push is best-effort and never raises.
 """
 from __future__ import annotations
 
@@ -25,8 +25,9 @@ from polywave.strategy import Signal
 
 logger = logging.getLogger(__name__)
 
-# Must match the key the dashboard's /api/state route reads.
-KV_STATE_KEY = "polywave:state"
+# Must match the row id the dashboard's /api/state route reads.
+SUPABASE_STATE_ROW_ID = "singleton"
+SUPABASE_TABLE = "bot_state"
 
 
 class StateStore:
@@ -42,8 +43,9 @@ class StateStore:
         signal: Signal | None = None,
         momentum_bps: float | None = None,
     ) -> None:
+        updated_at = datetime.now(timezone.utc).isoformat()
         snapshot: dict[str, Any] = {
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+            "updated_at": updated_at,
             "dry_run": config.dry_run,
             "market": _market_payload(market),
             "signal": signal.value if signal else None,
@@ -52,27 +54,31 @@ class StateStore:
             "open_positions": [asdict(p) for p in risk.positions.values() if not p.settled],
             "recent_trades": list(reversed(risk.history[-50:])),
         }
-        payload = json.dumps(snapshot, indent=2)
 
         tmp_path = self._path.with_suffix(".tmp")
-        tmp_path.write_text(payload)
+        tmp_path.write_text(json.dumps(snapshot, indent=2))
         tmp_path.replace(self._path)
 
-        self._push_to_kv(config, payload)
+        self._push_to_supabase(config, snapshot, updated_at)
 
-    def _push_to_kv(self, config: Config, payload: str) -> None:
-        if not (config.kv_rest_api_url and config.kv_rest_api_token):
+    def _push_to_supabase(self, config: Config, snapshot: dict[str, Any], updated_at: str) -> None:
+        if not (config.supabase_url and config.supabase_service_role_key):
             return
         try:
             requests.post(
-                f"{config.kv_rest_api_url}/set/{KV_STATE_KEY}",
-                params={"EX": config.state_ttl_seconds},
-                data=payload,
-                headers={"Authorization": f"Bearer {config.kv_rest_api_token}"},
+                f"{config.supabase_url}/rest/v1/{SUPABASE_TABLE}",
+                params={"on_conflict": "id"},
+                json=[{"id": SUPABASE_STATE_ROW_ID, "data": snapshot, "updated_at": updated_at}],
+                headers={
+                    "apikey": config.supabase_service_role_key,
+                    "Authorization": f"Bearer {config.supabase_service_role_key}",
+                    "Content-Type": "application/json",
+                    "Prefer": "resolution=merge-duplicates,return=minimal",
+                },
                 timeout=10,
             ).raise_for_status()
         except requests.RequestException:
-            logger.warning("Failed to push state to remote KV store", exc_info=True)
+            logger.warning("Failed to push state to Supabase", exc_info=True)
 
 
 def _market_payload(market: Market | None) -> dict | None:

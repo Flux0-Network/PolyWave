@@ -121,29 +121,38 @@ mode.
 The bot has to keep running somewhere with a persistent process (a VPS, your
 own machine, etc.) — Vercel only runs the *dashboard*. Since Vercel functions
 can't read that machine's local `data/state.json`, the bot instead pushes the
-same snapshot to a small REST-based key/value store that both sides can
-reach over HTTPS:
+same snapshot to a Supabase table that both sides can reach over HTTPS:
 
-1. **Create a KV store.** Easiest: in the Vercel dashboard, add the
-   "Upstash for Redis" integration (Storage tab) to your project — it
-   provisions a free Redis DB and gives you a REST URL + token. (A standalone
-   [Upstash](https://upstash.com) account works identically.)
-2. **Configure the bot.** In the bot's `.env`, set `KV_REST_API_URL` and
-   `KV_REST_API_TOKEN` to those values. The bot now pushes its state
-   snapshot there on every tick, in addition to the local file.
-3. **Import the repo into Vercel.** New Project → this repo → set
+1. **Create a Supabase project** at [supabase.com](https://supabase.com)
+   (free tier). In the SQL Editor, run:
+   ```sql
+   create table bot_state (
+     id text primary key,
+     data jsonb not null,
+     updated_at timestamptz not null default now()
+   );
+   ```
+2. **Get your credentials.** Project Settings → API → copy the **Project
+   URL** and the **`service_role` secret key** (not the `anon` key — the
+   service role key bypasses row-level security, so no policies are needed,
+   and it's only ever used server-side, never sent to a browser).
+3. **Configure the bot.** In the bot's `.env`, set `SUPABASE_URL` and
+   `SUPABASE_SERVICE_ROLE_KEY` to those values. The bot now upserts its
+   state snapshot into `bot_state` on every tick, in addition to the local
+   file.
+4. **Import the repo into Vercel.** New Project → this repo → set
    **Root Directory** to `dashboard` (it's a subfolder, not the repo root).
-4. **Add the same two env vars** (`KV_REST_API_URL`, `KV_REST_API_TOKEN`) to
-   the Vercel project's Environment Variables — if you used the Upstash
-   integration in step 1, Vercel already injected them for you.
-5. **Deploy.** As long as the bot is running somewhere and pushing, the
+5. **Add the same two env vars** (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`)
+   to the Vercel project's Environment Variables.
+6. **Deploy.** As long as the bot is running somewhere and pushing, the
    deployed dashboard shows live state. If the bot stops for more than
-   `STATE_TTL_SECONDS` (default 120s), the snapshot expires and the
-   dashboard falls back to its empty state rather than showing stale data.
+   `STATE_TTL_SECONDS` (default 120s), the dashboard treats the last
+   snapshot as stale and falls back to its empty state rather than showing
+   frozen data.
 
 Local development is unaffected — without those two env vars set, both the
-bot and the dashboard fall back to the local `data/state.json` file, no KV
-store needed.
+bot and the dashboard fall back to the local `data/state.json` file, no
+Supabase project needed.
 
 ## Tests
 
