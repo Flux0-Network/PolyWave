@@ -59,12 +59,16 @@ class Config:
     stats_log_interval_seconds: int = field(default_factory=lambda: _int("STATS_LOG_INTERVAL_SECONDS", 900))
 
     state_file_path: str = field(default_factory=lambda: os.getenv("STATE_FILE_PATH", "data/state.json"))
-    # Optional: push the same state snapshot to an Upstash/Vercel KV REST
-    # endpoint so a dashboard deployed on Vercel (which can't read this
-    # machine's filesystem) can read it too. Both env var names are the ones
-    # Vercel's Upstash-backed KV integration injects automatically.
-    kv_rest_api_url: str | None = field(default_factory=lambda: os.getenv("KV_REST_API_URL") or None)
-    kv_rest_api_token: str | None = field(default_factory=lambda: os.getenv("KV_REST_API_TOKEN") or None)
+    # Optional: also push the state snapshot to a Supabase table so a
+    # dashboard deployed on Vercel (which can't read this machine's
+    # filesystem) can read it too. Use the project's service_role key (not
+    # anon) -- it bypasses RLS so no policies need to be set up, and it's
+    # only ever used server-side (this process, and the dashboard's server
+    # route), never exposed to a browser.
+    supabase_url: str | None = field(default_factory=lambda: os.getenv("SUPABASE_URL") or None)
+    supabase_service_role_key: str | None = field(
+        default_factory=lambda: os.getenv("SUPABASE_SERVICE_ROLE_KEY") or None
+    )
     state_ttl_seconds: int = field(default_factory=lambda: _int("STATE_TTL_SECONDS", 120))
 
     trade_size_usdc: float = field(default_factory=lambda: _float("TRADE_SIZE_USDC", 5))

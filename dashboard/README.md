@@ -2,7 +2,7 @@
 
 A read-only Next.js dashboard for the PolyWave bot (see the repo root
 `README.md`). It polls `/api/state`, a route handler that reads the bot's
-JSON state snapshot either from a local file or from a remote KV store.
+JSON state snapshot either from a local file or from a Supabase table.
 
 ## Run locally (bot on the same machine)
 
@@ -18,29 +18,33 @@ writes on every tick.
 ## Deploy to Vercel (bot running elsewhere)
 
 Vercel functions can't read a file on your bot's machine, so in production
-`/api/state` reads from an Upstash-compatible REST KV store that the bot
-pushes to instead. See the "Deploying the dashboard to Vercel" section in
-the repo root `README.md` for the full setup. Short version: set
-`KV_REST_API_URL` and `KV_REST_API_TOKEN` to the same values on both the
-bot's `.env` and this Vercel project, and set the project's **Root
-Directory** to `dashboard`.
+`/api/state` reads from a Supabase table that the bot pushes to instead. See
+the "Deploying the dashboard to Vercel" section in the repo root `README.md`
+for the full setup (including the one-time `create table` SQL). Short
+version: set `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` to the same
+values on both the bot's `.env` and this Vercel project, and set the
+project's **Root Directory** to `dashboard`.
 
 ## Configuration
 
-- `KV_REST_API_URL` / `KV_REST_API_TOKEN` — when both are set, state is read
-  from this REST KV store instead of the local file. Required on Vercel;
-  optional locally (see `.env.local.example`).
-- `STATE_FILE_PATH` — only used when the KV vars above are unset. Absolute
-  or relative (to `dashboard/`) path to the state file. Defaults to
+- `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` — when both are set, state is
+  read from the `bot_state` table instead of the local file. Required on
+  Vercel; optional locally (see `.env.local.example`). Use the
+  `service_role` key, not `anon` — it's only used server-side here.
+- `STATE_TTL_SECONDS` — a snapshot older than this (bot stopped/crashed) is
+  treated as unavailable rather than shown as frozen data. Default 120s;
+  should match the bot's value.
+- `STATE_FILE_PATH` — only used when the Supabase vars above are unset.
+  Absolute or relative (to `dashboard/`) path to the state file. Defaults to
   `../data/state.json`, matching the bot's default `STATE_FILE_PATH`.
 
 ## Notes
 
 - The dashboard never contacts Polymarket, Binance, or a wallet — it only
-  reads state the bot already wrote (from a file or from KV). Safe to leave
-  open in live mode.
+  reads state the bot already wrote (from a file or from Supabase). Safe to
+  leave open in live mode.
 - `npm run build` prints a Turbopack file-tracing warning about
   `src/app/api/state/route.ts`'s local-file fallback reading a path outside
   the project. It's informational — the route still works correctly on
-  Vercel (which uses the KV path, not the file path) and under `next dev`
-  / `next start`.
+  Vercel (which uses the Supabase path, not the file path) and under
+  `next dev` / `next start`.
